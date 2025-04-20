@@ -1,3 +1,4 @@
+#include "glm/common.hpp"
 #include "glm/ext/matrix_clip_space.hpp"
 #include "glm/trigonometric.hpp"
 #include "utils.h"
@@ -126,7 +127,7 @@ int main(int argc, char* argv[])
   SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
   SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 3);
 
-  window = SDL_CreateWindow("Hello OpenGL",
+  window = SDL_CreateWindow("Breakout 3D",
       SCREEN_WIDTH,
       SCREEN_HEIGHT,
       SDL_WINDOW_OPENGL);
@@ -215,24 +216,41 @@ int main(int argc, char* argv[])
   glDeleteShader(vert_shader);
   glDeleteShader(frag_shader);
 
+  glm::mat4 view { 1.0f };
+  view = glm::translate(view, glm::vec3 { 0.0f, 0.0f, -3.0f });
+  int u_view = glGetUniformLocation(shader_program, "u_view");
+  glUniformMatrix4fv(u_view, 1, false, glm::value_ptr(view));
+
+  glm::mat4 projection = glm::perspective(glm::radians(45.0f), (float)SCREEN_WIDTH / (float)SCREEN_HEIGHT, 0.1f, 100.0f);
+  int u_projection = glGetUniformLocation(shader_program, "u_projection");
+  glUniformMatrix4fv(u_projection, 1, false, glm::value_ptr(projection));
+
+  glm::vec3 paddle_pos = glm::vec3 { 0.0f, -0.75f, 0.0f };
+
+  const bool* keystates = SDL_GetKeyboardState(nullptr);
+
   while (!done)
   {
     SDL_Event event;
-
     while (SDL_PollEvent(&event))
     {
-      if (event.type == SDL_EVENT_QUIT)
-      {
-        done = true;
-      }
-      else if (event.type == SDL_EVENT_KEY_DOWN)
-      {
-        if (event.key.scancode == SDL_SCANCODE_ESCAPE)
-        {
-          done = true;
-        }
-      }
+      // Handle SDL events.
     }
+
+    if (keystates[SDL_SCANCODE_ESCAPE])
+    {
+      done = true;
+    }
+    // TODO: Account for delta time in paddle movement (and everywhere I guess lol)
+    if (keystates[SDL_SCANCODE_D])
+    {
+      paddle_pos.x += 0.0003;
+    }
+    if (keystates[SDL_SCANCODE_A])
+    {
+      paddle_pos.x -= 0.0003;
+    }
+    paddle_pos.x = glm::clamp(paddle_pos.x, -1.5f, 1.5f);
 
     glEnable(GL_DEPTH_TEST);
     glClearColor(0.3f, 0.1f, 0.3f, 1.0f);
@@ -242,19 +260,10 @@ int main(int argc, char* argv[])
     glBindVertexArray(vao);
 
     glm::mat4 model { 1.0f };
-    model = glm::translate(model, glm::vec3 { 0.0f, 0.0f, 0.0f });
-    model = glm::rotate(model, TIME_SEC, glm::vec3 { 0.0f, 1.0f, 1.0f });
+    model = glm::translate(model, paddle_pos);
+    model = glm::scale(model, glm::vec3 { 1.0f, 0.25f, 0.5f });
     int u_model = glGetUniformLocation(shader_program, "u_model");
     glUniformMatrix4fv(u_model, 1, false, glm::value_ptr(model));
-
-    glm::mat4 view { 1.0f };
-    view = glm::translate(view, glm::vec3 { 0.5f, 0.0f, -3.0f });
-    int u_view = glGetUniformLocation(shader_program, "u_view");
-    glUniformMatrix4fv(u_view, 1, false, glm::value_ptr(view));
-
-    glm::mat4 projection = glm::perspective(glm::radians(45.0f), (float)SCREEN_WIDTH / (float)SCREEN_HEIGHT, 0.1f, 100.0f);
-    int u_projection = glGetUniformLocation(shader_program, "u_projection");
-    glUniformMatrix4fv(u_projection, 1, false, glm::value_ptr(projection));
 
     glDrawArrays(GL_TRIANGLES, 0, 36);
 
