@@ -1,7 +1,9 @@
 CXX := clang++
 
+CXXFLAGS := -g
+
 # SDL3
-CXXFLAGS := -I/opt/homebrew/include
+CXXFLAGS += -I/opt/homebrew/include
 LDFLAGS := -L/opt/homebrew/lib -Wl,-rpath,/opt/homebrew/lib -lSDL3
 
 # GLEW
@@ -10,6 +12,9 @@ LDFLAGS += -L/opt/homebrew/Cellar/glew/2.2.0_1/lib -lGLEW
 
 # GLM
 CXXFLAGS += -I/opt/homebrew/Cellar/glm/1.0.1/include
+
+# tinygltf
+CXXFLAGS += -Ithirdparty/tinygltf
 
 LDFLAGS += -framework OpenGL
 
