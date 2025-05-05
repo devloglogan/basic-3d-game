@@ -26,18 +26,25 @@ using namespace tinygltf;
 #define SCREEN_HEIGHT 480.0f
 #define TIME_SEC (float)SDL_GetTicks() / 1000.0f
 
+// TODO: Make this not global
+unsigned int texture_id;
+
+// TODO: Create Vertex struct and use glm vectors
 struct MeshData
 {
   std::vector<float> positions;
+  std::vector<float> tex_coords;
   std::vector<uint32_t> indices;
 };
 
 enum VBO
 {
   VBO_POSITION,
+  VBO_TEX_COORD,
   VBO_MAX
 };
 
+// TODO: Update variables to const refs where applicable
 MeshData load_mesh_data(const std::string& filepath)
 {
   Model model;
@@ -55,21 +62,33 @@ MeshData load_mesh_data(const std::string& filepath)
     return MeshData {};
   }
 
-  // Assuming mesh 0, primitive 0
+  // Assuming mesh 0, primitive 0, one material.
   Primitive primitive = model.meshes[0].primitives[0];
+  Material material = model.materials[primitive.material];
+  Texture texture = model.textures[material.pbrMetallicRoughness.baseColorTexture.index];
+  Image image = model.images[texture.source];
+
+  // Position
   Accessor pos_accessor = model.accessors[primitive.attributes.at("POSITION")];
   BufferView pos_buffer_view = model.bufferViews[pos_accessor.bufferView];
   Buffer pos_buffer = model.buffers[pos_buffer_view.buffer];
-
   const unsigned char* pos_data = pos_buffer.data.data() + pos_buffer_view.byteOffset + pos_accessor.byteOffset;
   std::vector<float> positions(pos_accessor.count * 3);
   memcpy(positions.data(), pos_data, pos_accessor.count * 3 * sizeof(float));
 
+  // Tex Coord
+  Accessor tc_accessor = model.accessors[primitive.attributes.at("TEXCOORD_0")];
+  BufferView tc_buffer_view = model.bufferViews[tc_accessor.bufferView];
+  Buffer tc_buffer = model.buffers[tc_buffer_view.buffer];
+  const unsigned char* tc_data = tc_buffer.data.data() + tc_buffer_view.byteOffset + tc_accessor.byteOffset;
+  std::vector<float> tex_coords(tc_accessor.count * 2);
+  memcpy(tex_coords.data(), tc_data, tc_accessor.count * 2 * sizeof(float));
+
+  // Indices
   Accessor idx_accessor = model.accessors[primitive.indices];
   BufferView idx_buffer_view = model.bufferViews[idx_accessor.bufferView];
   Buffer idx_buffer = model.buffers[idx_buffer_view.buffer];
   const unsigned char* idx_data = idx_buffer.data.data() + idx_buffer_view.byteOffset + idx_accessor.byteOffset;
-
   std::vector<uint32_t> indices(idx_accessor.count);
   if (idx_accessor.componentType == TINYGLTF_COMPONENT_TYPE_UNSIGNED_SHORT)
   {
@@ -86,13 +105,32 @@ MeshData load_mesh_data(const std::string& filepath)
     std::cerr << "Unsupported glTF index type!" << std::endl;
   }
 
-  return { positions, indices };
+  glGenTextures(1, &texture_id);
+  glBindTexture(GL_TEXTURE_2D, texture_id);
+
+  GLenum format = GL_RGB;
+  if (image.component == 1)
+    format = GL_RED;
+  else if (image.component == 3)
+    format = GL_RGB;
+  else if (image.component == 4)
+    format = GL_RGBA;
+
+  glTexImage2D(GL_TEXTURE_2D, 0, format, image.width, image.height, 0, format, GL_UNSIGNED_BYTE, image.image.data());
+
+  glGenerateMipmap(GL_TEXTURE_2D);
+
+  // Set texture parameters
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+
+  return { positions, tex_coords, indices };
 }
 
 int main(int argc, char* argv[])
 {
-  MeshData mesh_data = load_mesh_data("../res/models/pyramid/pyramid.gltf");
-
   SDL_Window* window;
   bool done = false;
 
@@ -126,6 +164,8 @@ int main(int argc, char* argv[])
     return 1;
   }
 
+  MeshData mesh_data = load_mesh_data("../res/models/pyramid/pyramid.gltf");
+
   unsigned int vao;
   glGenVertexArrays(1, &vao);
   glBindVertexArray(vao);
@@ -133,10 +173,16 @@ int main(int argc, char* argv[])
   unsigned int vbo[VBO_MAX];
   glGenBuffers(VBO_MAX, &vbo[0]);
 
+  // TODO: Use offsetof function when Vertex struct is implemented
   glBindBuffer(GL_ARRAY_BUFFER, vbo[VBO_POSITION]);
   glBufferData(GL_ARRAY_BUFFER, mesh_data.positions.size() * sizeof(float), mesh_data.positions.data(), GL_STATIC_DRAW);
   glVertexAttribPointer(VBO_POSITION, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
   glEnableVertexAttribArray(VBO_POSITION);
+
+  glBindBuffer(GL_ARRAY_BUFFER, vbo[VBO_TEX_COORD]);
+  glBufferData(GL_ARRAY_BUFFER, mesh_data.tex_coords.size() * sizeof(float), mesh_data.tex_coords.data(), GL_STATIC_DRAW);
+  glVertexAttribPointer(VBO_TEX_COORD, 2, GL_FLOAT, GL_FALSE, 2 * sizeof(float), (void*)0);
+  glEnableVertexAttribArray(VBO_TEX_COORD);
 
   unsigned int ebo;
   glGenBuffers(1, &ebo);
@@ -192,7 +238,7 @@ int main(int argc, char* argv[])
   glDeleteShader(frag_shader);
 
   glm::mat4 view { 1.0f };
-  view = glm::translate(view, glm::vec3 { 0.0f, 0.0f, -3.0f });
+  view = glm::translate(view, glm::vec3 { 0.0f, 0.0f, -4.0f });
   int u_view = glGetUniformLocation(shader_program, "u_view");
   glUniformMatrix4fv(u_view, 1, false, glm::value_ptr(view));
 
@@ -235,13 +281,16 @@ int main(int argc, char* argv[])
     glUseProgram(shader_program);
     glBindVertexArray(vao);
 
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, texture_id);
+    glUniform1i(glGetUniformLocation(shader_program, "u_texture"), 0);
+
     glm::mat4 model { 1.0f };
     model = glm::translate(model, paddle_pos);
-    model = glm::scale(model, glm::vec3 { 1.0f, 0.25f, 0.5f });
     int u_model = glGetUniformLocation(shader_program, "u_model");
     glUniformMatrix4fv(u_model, 1, false, glm::value_ptr(model));
 
-    glDrawElements(GL_POINTS, mesh_data.indices.size(), GL_UNSIGNED_INT, 0);
+    glDrawElements(GL_TRIANGLES, mesh_data.indices.size(), GL_UNSIGNED_INT, 0);
 
     SDL_GL_SwapWindow(window);
   }
